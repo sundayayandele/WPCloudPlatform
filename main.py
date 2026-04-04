@@ -12,21 +12,15 @@ from typing import Optional, List
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, validator
-import uvicorn
+from fastapi.responses import RedirectResponse
 
-from orchestrator import SiteOrchestrator
-from models import (
-    Site, SiteCreate, SiteStatus, ServerInfo, BackupJob,
-    DNSRecord, SSLCertificate, StagingEnv, SecurityEvent
-)
-from database import Database
+# ... existing code ...
 
-app = FastAPI(
-    title="WPCloud Orchestrator API",
-    description="Self-hosted WordPress hosting platform",
-    version="1.0.0"
-)
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/docs")
+
+# ─── Sites ─────────────────────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
