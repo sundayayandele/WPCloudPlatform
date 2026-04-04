@@ -13,8 +13,14 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import RedirectResponse
+import uvicorn
 
-# ... existing code ...
+from orchestrator import SiteOrchestrator
+from models import (
+    Site, SiteCreate, SiteStatus, ServerInfo, BackupJob,
+    DNSRecord, SSLCertificate, StagingEnv, SecurityEvent
+)
+from database import Database
 
 @app.get("/")
 async def root():
