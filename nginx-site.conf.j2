@@ -1,0 +1,151 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# WPCloud Nginx Config — {{ domain }}
+# FastCGI cache + security headers + gzip + HTTP/2 ready
+# ─────────────────────────────────────────────────────────────────────────────
+
+# FastCGI cache zone (per-site, 1GB)
+fastcgi_cache_path /opt/wpcloud/sites/{{ domain }}/nginx/cache
+    levels=1:2
+    keys_zone=WPCLOUD_{{ site_id }}:10m
+    max_size=1g
+    inactive=60m
+    use_temp_path=off;
+
+# Skip cache for logged-in users, POST requests, WooCommerce etc.
+map $request_uri $skip_cache {
+    default                         0;
+    ~*wp-admin                      1;
+    ~*wp-login.php                  1;
+    ~*xmlrpc.php                    1;
+    ~*\?s=                          1;
+}
+
+map $http_cookie $skip_cache_cookie {
+    default                         0;
+    ~*wordpress_logged_in           1;
+    ~*comment_author                1;
+    ~*woocommerce_cart_hash         1;
+    ~*woocommerce_items_in_cart     1;
+}
+
+# ─── HTTP → HTTPS redirect ────────────────────────────────────────────────────
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ domain }} www.{{ domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ─── HTTPS main server ────────────────────────────────────────────────────────
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{ domain }} www.{{ domain }};
+
+    # SSL
+    ssl_certificate     /etc/letsencrypt/live/{{ domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ domain }}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_stapling        on;
+    ssl_stapling_verify on;
+
+    # Security headers
+    add_header X-Frame-Options           "SAMEORIGIN"            always;
+    add_header X-Content-Type-Options    "nosniff"               always;
+    add_header X-XSS-Protection          "1; mode=block"         always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy        "geolocation=(), microphone=()" always;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # Logs
+    access_log /opt/wpcloud/sites/{{ domain }}/nginx/logs/access.log;
+    error_log  /opt/wpcloud/sites/{{ domain }}/nginx/logs/error.log warn;
+
+    root /var/www/html;
+    index index.php;
+
+    # Gzip
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_min_length 256;
+
+    # Client-side caching for static assets
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js|woff2|woff|ttf|svg|webp|avif)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        log_not_found off;
+        access_log off;
+    }
+
+    # Block xmlrpc if not needed
+    location = /xmlrpc.php {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Block access to sensitive files
+    location ~ /\. { deny all; }
+    location ~* /(wp-config\.php|readme\.html|license\.txt|wp-cli\.yml) {
+        deny all;
+    }
+
+    # WordPress permalinks
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    # PHP-FPM with FastCGI Cache
+    location ~ \.php$ {
+        # Only pass real files to PHP
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+
+        # Pass to site-specific PHP-FPM container on Docker network
+        fastcgi_pass unix:/run/php/wp_{{ site_id }}.sock;
+        # If using TCP (fallback):
+        # fastcgi_pass 127.0.0.1:9{{ site_id[-4:] }};
+
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+
+        fastcgi_param HTTP_PROXY "";  # Block HTTPoxy
+        fastcgi_buffer_size 128k;
+        fastcgi_buffers 8 256k;
+        fastcgi_busy_buffers_size 256k;
+
+        # FastCGI Cache rules
+        fastcgi_cache WPCLOUD_{{ site_id }};
+        fastcgi_cache_valid 200 301 302 60m;
+        fastcgi_cache_valid 404 1m;
+        fastcgi_cache_use_stale error timeout invalid_header updating http_500 http_503;
+        fastcgi_cache_background_update on;
+        fastcgi_cache_lock on;
+        fastcgi_cache_bypass $skip_cache $skip_cache_cookie;
+        fastcgi_no_cache  $skip_cache $skip_cache_cookie;
+        add_header X-FastCGI-Cache $upstream_cache_status;
+
+        # PHP timeouts
+        fastcgi_read_timeout 120;
+        fastcgi_connect_timeout 10;
+    }
+
+    # Block access to wp-content source files
+    location ~* /wp-content/.*\.(php|py|rb|pl|sh)$ {
+        deny all;
+    }
+}
