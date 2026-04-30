@@ -25,7 +25,18 @@ jobs:
       with:
         languages: ${{ matrix.language }}
 
+    - name: Setup .NET
+      if: matrix.language == 'csharp'
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Build C# code
+      if: matrix.language == 'csharp'
+      run: dotnet build --no-incremental
+
     - name: Autobuild
+      if: matrix.language != 'csharp'
       uses: github/codeql-action/autobuild@v4
 
     - name: Perform CodeQL Analysis
