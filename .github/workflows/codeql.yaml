@@ -33,7 +33,12 @@ jobs:
 
     - name: Build C# code
       if: matrix.language == 'csharp'
-      run: dotnet build --no-incremental
+      run: |
+        if find . -name "*.csproj" -o -name "*.sln" | grep -q .; then
+          dotnet build --no-incremental
+        else
+          echo "No C# project or solution files found, skipping build."
+        fi
 
     - name: Autobuild
       if: matrix.language != 'csharp'
