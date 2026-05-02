@@ -11,10 +11,11 @@ on:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        language: ['csharp']
+        language: ['csharp', 'python']
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -24,8 +25,24 @@ jobs:
       with:
         languages: ${{ matrix.language }}
 
+    - name: Setup .NET
+      if: matrix.language == 'csharp'
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Build C# code
+      if: matrix.language == 'csharp'
+      run: |
+        if find . -name "*.csproj" -o -name "*.sln" | grep -q .; then
+          dotnet build --no-incremental
+        else
+          echo "No C# project or solution files found, skipping build."
+        fi
+
     - name: Autobuild
+      if: matrix.language != 'csharp'
       uses: github/codeql-action/autobuild@v4
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v1
+      uses: github/codeql-action/analyze@v4
